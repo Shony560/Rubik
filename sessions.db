@@ -1,0 +1,156 @@
+require 'sinatra'
+require 'sqlite3'
+require 'securerandom'
+
+# Set up the database connection
+DB = SQLite3::Database.new "sessions.db"
+
+# Ensure the sessions table exists
+DB.execute <<-SQL
+  CREATE TABLE IF NOT EXISTS sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT,
+    user_data TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+SQL
+
+# Custom method to get or create a session
+def find_or_create_session
+  session_id = session[:session_id]
+  
+  if session_id
+    # Fetch user session from DB if it exists
+    result = DB.execute("SELECT * FROM sessions WHERE session_id = ?", session_id)
+    return result.first if result.any?
+  else
+    # Create a new session if it doesn't exist
+    new_session_id = SecureRandom.hex(16)
+    session[:session_id] = new_session_id
+    DB.execute("INSERT INTO sessions (session_id, user_data) VALUES (?, ?)", new_session_id, "{}")
+    return { "session_id" => new_session_id, "user_data" => "{}" }
+  end
+end
+
+# Home route (Calculator Page)
+get '/' do
+  session_info = find_or_create_session
+  @user_data = session_info['user_data']
+  erb :index
+end
+
+# Route to handle calculator logic
+post '/calculate' do
+  # Retrieve the current session
+  session_info = find_or_create_session
+
+  # Get current calculator value from session
+  current_value = session_info['user_data']
+  
+  # Get the user's input (number and operator)
+  input_value = params[:value]
+  operator = params[:operator]
+  
+  # Perform the calculation logic based on input
+  if current_value.empty?
+    current_value = input_value
+  else
+    current_value = case operator
+                    when "add"
+                      current_value.to_f + input_value.to_f
+                    when "subtract"
+                      current_value.to_f - input_value.to_f
+                    when "multiply"
+                      current_value.to_f * input_value.to_f
+                    when "divide"
+                      current_value.to_f / input_value.to_f
+                    else
+                      current_value
+                    end
+  end
+
+  # Save updated user data (calculator state) to DB
+  DB.execute("UPDATE sessions SET user_data = ? WHERE session_id = ?", current_value.to_s, session_info['session_id'])
+
+  # Redirect back to home page
+  redirect '/'
+end
+
+__END__
+
+@@ index
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calculator</title>
+  <style>
+    body {
+      background-color: #2e8b57;
+      color: #ffff00;
+      font-family: Arial, sans-serif;
+    }
+    h1 {
+      text-align: center;
+    }
+    .calculator {
+      margin: 0 auto;
+      width: 300px;
+      text-align: center;
+    }
+    .button {
+      width: 60px;
+      height: 60px;
+      margin: 5px;
+      font-size: 20px;
+      background-color: #444;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    .button:hover {
+      background-color: #888;
+    }
+    .display {
+      width: 280px;
+      height: 50px;
+      margin: 20px 0;
+      text-align: right;
+      font-size: 30px;
+      padding: 10px;
+      background-color: #333;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <h1>Calculator</h1>
+  <div class="calculator">
+    <div class="display">
+      <%= @user_data %>
+    </div>
+    <form method="POST" action="/calculate">
+      <input type="hidden" name="value" value="1">
+      <input type="hidden" name="operator" value="add">
+      <button class="button" type="submit">1</button>
+    </form>
+    <form method="POST" action="/calculate">
+      <input type="hidden" name="value" value="2">
+      <input type="hidden" name="operator" value="add">
+      <button class="button" type="submit">2</button>
+    </form>
+    <form method="POST" action="/calculate">
+      <input type="hidden" name="value" value="3">
+      <input type="hidden" name="operator" value="add">
+      <button class="button" type="submit">3</button>
+    </form>
+    <form method="POST" action="/calculate">
+      <input type="hidden" name="value" value="4">
+      <input type="hidden" name="operator" value="add">
+      <button class="button" type="submit">4</button>
+    </form>
+    <!-- Add more buttons for numbers and operations -->
+  </div>
+</body>
+</html>
